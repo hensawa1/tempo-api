@@ -14,7 +14,7 @@ const SECRET_KEY = 'segredo_super_seguro';
 app.use(cors());
 app.use(bodyParser.json());
 
-// Conexão DB (Lembre-se: No plano grátis do Render, isso reseta ao reiniciar)
+// Conexão DB (Resetado ao reiniciar no plano grátis)
 const db = new sqlite3.Database('./database.db', (err) => {
     if (err) console.error(err.message);
     console.log('Conectado ao SQLite.');
@@ -37,12 +37,32 @@ app.get('/', (req, res) => {
     res.send('API do TempoAoVivo está ONLINE no Render!');
 });
 
-// Rota de Cadastro
+// --- ROTA DE CADASTRO COM VALIDAÇÕES ---
 app.post('/register', (req, res) => {
     const { name, email, password, phone, address, city, zip } = req.body;
 
-    if (!name || !email || !password) {
+    // 1. Validação de Campos Obrigatórios
+    if (!name || !email || !password || !phone || !zip) {
         return res.status(400).json({ error: 'Preencha todos os campos obrigatórios.' });
+    }
+
+    // 2. Validação de Senha (Mínimo 8 caracteres)
+    if (password.length < 8) {
+        return res.status(400).json({ error: 'A senha deve ter no mínimo 8 caracteres.' });
+    }
+
+    // 3. Validação de Telefone (Limpeza e DDD)
+    // Remove tudo que não for número
+    const cleanPhone = phone.toString().replace(/\D/g, '');
+    // Aceita: (11) 99999-9999 (11 dígitos) ou (11) 3333-3333 (10 dígitos)
+    if (cleanPhone.length < 10 || cleanPhone.length > 11) {
+        return res.status(400).json({ error: 'Telefone inválido. Use o formato DDD+Número (Ex: 11999999999).' });
+    }
+
+    // 4. Validação de CEP (Deve ter 8 dígitos)
+    const cleanZip = zip.toString().replace(/\D/g, '');
+    if (cleanZip.length !== 8) {
+        return res.status(400).json({ error: 'CEP inválido. Deve conter apenas 8 números.' });
     }
 
     const saltRounds = 10;
@@ -90,14 +110,13 @@ app.post('/login', (req, res) => {
     });
 });
 
-// --- ROTA DE PERFIL (COM A CORREÇÃO DO LOGOUT) ---
+// Rota de Perfil (Protegida contra banco resetado)
 app.get('/user/:id', (req, res) => {
     const sql = "SELECT id, name, email, phone, city, address, zip FROM users WHERE id = ?";
     db.get(sql, [req.params.id], (err, row) => {
         if (err) return res.status(500).json({ error: "Erro ao buscar dados" });
 
-        // A MUDANÇA IMPORTANTE ESTÁ AQUI:
-        // Se o usuário não for encontrado (ex: banco resetou), devolve erro 404
+        // Se não achar o usuário, retorna 404 para o app deslogar
         if (!row) {
             return res.status(404).json({ error: "Usuário não encontrado" });
         }
